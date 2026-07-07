@@ -20,6 +20,14 @@ function requireAuth(req, res, next) {
   next();
 }
 
+// YouTube blocks anonymous requests from datacenter IPs (like Railway's) with
+// a bot-check. Providing cookies from a real, signed-in session avoids that.
+let cookiesPath;
+if (process.env.YTDLP_COOKIES_B64) {
+  cookiesPath = path.join(os.tmpdir(), "youtube-cookies.txt");
+  fs.writeFileSync(cookiesPath, Buffer.from(process.env.YTDLP_COOKIES_B64, "base64"));
+}
+
 app.get("/health", (req, res) => res.json({ ok: true }));
 
 // Downloads a YouTube or Twitch VOD URL via yt-dlp and uploads the result
@@ -33,11 +41,14 @@ app.post("/download", requireAuth, async (req, res) => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "clip-"));
   const outputPath = path.join(tmpDir, "source.mp4");
 
+  const args = ["-f", "mp4", "-o", outputPath, sourceUrl];
+  if (cookiesPath) args.unshift("--cookies", cookiesPath);
+
   try {
     await new Promise((resolve, reject) => {
       execFile(
         "yt-dlp",
-        ["-f", "mp4", "-o", outputPath, sourceUrl],
+        args,
         { maxBuffer: 1024 * 1024 * 50 },
         (error, stdout, stderr) => (error ? reject(new Error(stderr || error.message)) : resolve())
       );
